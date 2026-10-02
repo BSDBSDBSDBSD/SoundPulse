@@ -116,6 +116,8 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     val set: Setter = { f -> d = f(d); val snap = d; scope.launch(Dispatchers.IO) { store.save(snap) } }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var all by remember { mutableStateOf(listOf<Clip>()) }
+    var subfolders by remember { mutableStateOf(listOf<Folder>()) }
+    var path by remember { mutableStateOf(listOf<androidx.documentfile.provider.DocumentFile>()) }
     var cur by remember { mutableStateOf<Clip?>(null) }
     var env by remember { mutableStateOf<FloatArray?>(null) }
     var gesture by rememberSaveable { mutableStateOf(false) }
@@ -129,7 +131,13 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     val dS by rememberUpdatedState(d)
     val allS by rememberUpdatedState(all)
     val curS by rememberUpdatedState(cur)
-    fun refresh() { d.folder?.let { f -> scope.launch { all = withContext(Dispatchers.IO) { clips(ctx, Uri.parse(f)) } } } }
+    fun browseCurrent() {
+        val dir = path.lastOrNull() ?: return
+        scope.launch { val r = withContext(Dispatchers.IO) { browse(ctx, dir) }; subfolders = r.first; all = r.second }
+    }
+    fun refresh() { browseCurrent() }
+    val enterFolder: (Folder) -> Unit = { f -> path = path + f.doc }
+    val goBack: () -> Unit = { if (path.size > 1) path = path.dropLast(1) }
     val playClip: (Clip, Long) -> Unit = { c, start ->
         curS?.let { old -> runCatching { val k = old.uri.toString(); val ps = p.currentPosition; set { x -> x.copy(pos = x.pos + (k to ps)) } } }
         val st = if (start >= 0) start else maxOf(0L, (dS.pos[c.uri.toString()] ?: 0L) - 3000L)
@@ -138,7 +146,11 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         runCatching { p.setPlaybackSpeed(dS.speed); p.skipSilenceEnabled = dS.skip }
     }
     val playRef by rememberUpdatedState(playClip)
-    LaunchedEffect(d.folder) { refresh() }
+    LaunchedEffect(d.folder) {
+        val root = d.folder?.let { withContext(Dispatchers.IO) { rootDoc(ctx, Uri.parse(it)) } }
+        path = if (root != null) listOf(root) else emptyList()
+    }
+    LaunchedEffect(path) { if (path.isNotEmpty()) browseCurrent() else { all = emptyList(); subfolders = emptyList() } }
     LaunchedEffect(cur) {
         env = null
         cur?.let { c -> env = runCatching { analyze(ctx, c.uri, c.uri.toString() + c.size + c.mod) }.getOrNull() }
@@ -203,7 +215,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         } }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
-                0 -> Library(d, set, all, cur) { c -> playClip(c, -1L); tab = 1 }
+                0 -> Library(d, set, all, subfolders, (path.size <= 1), path.lastOrNull()?.name, enterFolder, goBack, cur) { c -> playClip(c, -1L); tab = 1 }
                 1 -> when (skin) {
                     Skin.SPOTIFY -> PlayerSpotify(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
                     Skin.YTM -> PlayerYtm(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
@@ -304,7 +316,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         Spacer(Modifier.height(12.dp)); Text(text, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 
-@Composable fun Library(d: AppData, set: Setter, all: List<Clip>, cur: Clip?, onPlay: (Clip) -> Unit) {
+@Composable fun Library(d: AppData, set: Setter, files: List<Clip>, folders: List<Folder>, atRoot: Boolean, folderName: String?, onEnter: (Folder) -> Unit, onBack: () -> Unit, cur: Clip?, onPlay: (Clip) -> Unit) {
     val ctx = LocalContext.current
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { u ->
         if (u != null) runCatching {
@@ -315,27 +327,49 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     var q by rememberSaveable { mutableStateOf("") }
     var onlyNew by rememberSaveable { mutableStateOf(false) }
     var newest by rememberSaveable { mutableStateOf(false) }
-    val base = all.filter { it.audio }
+    val base = files.filter { it.audio }
     val list = base.filter { q.isBlank() || it.name.contains(q, ignoreCase = true) }
         .filter { !onlyNew || it.uri.toString() !in d.played }
         .let { if (newest) it.sortedByDescending { c -> c.mod } else it }
+    val shownFolders = folders.filter { q.isBlank() || it.name.contains(q, ignoreCase = true) }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("הספרייה שלי", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         FilledTonalButton({ pick.launch(null) }, Modifier.fillMaxWidth().height(48.dp)) {
             Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(8.dp)); Text(if (d.folder == null) "בחר תיקיית הקלטות" else "החלף תיקייה")
         }
-        if (base.isNotEmpty()) {
-            OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth(), placeholder = { Text("חיפוש הקלטה") }, singleLine = true,
+        if (d.folder != null) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (!atRoot) {
+                    FilledTonalIconButton({ onBack() }, Modifier.size(38.dp)) { Icon(Icons.Rounded.ArrowForward, "חזרה") }
+                    Spacer(Modifier.width(8.dp))
+                } else { Icon(Icons.Rounded.Home, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)) }
+                Text(if (atRoot) "בית" else (folderName ?: "תיקייה"), Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth(), placeholder = { Text("חיפוש הקלטה או תיקייה") }, singleLine = true,
                 leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(14.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = onlyNew, onClick = { onlyNew = !onlyNew }, label = { Text("שלא הושמעו") })
                 FilterChip(selected = newest, onClick = { newest = !newest }, label = { Text("החדשות קודם") })
-                Text("${list.size} הקלטות", Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${shownFolders.size} תיקיות · ${list.size} הקלטות", Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (list.isEmpty()) Empty(Icons.Rounded.LibraryMusic, if (d.folder == null) "בחר תיקייה כדי להתחיל" else if (base.isEmpty()) "לא נמצאו הקלטות בתיקייה" else "אין הקלטות שמתאימות לחיפוש")
+        if (d.folder == null) Empty(Icons.Rounded.LibraryMusic, "בחר תיקייה כדי להתחיל")
+        else if (list.isEmpty() && shownFolders.isEmpty()) Empty(Icons.Rounded.LibraryMusic, if (q.isBlank()) "התיקייה ריקה" else "אין תוצאות לחיפוש")
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
-            items(list, key = { it.uri.toString() }) { c ->
+            items(shownFolders, key = { "f:" + it.name }) { f ->
+                Card(Modifier.fillMaxWidth().clickable { onEnter(f) }, shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondary.copy(alpha = .18f)), Alignment.Center) {
+                            Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.secondary)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(f.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                        Icon(Icons.Rounded.ChevronLeft, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            items(list, key = { "c:" + it.uri.toString() }) { c ->
                 val k = c.uri.toString()
                 val done = k in d.played; val active = c.uri == cur?.uri
                 val nm = d.marks.count { it.uri == k }
