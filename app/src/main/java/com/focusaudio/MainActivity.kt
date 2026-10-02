@@ -71,9 +71,14 @@ class MainActivity : ComponentActivity() {
             runCatching { registerForActivityResult(ActivityResultContracts.RequestPermission()) {}.launch(Manifest.permission.POST_NOTIFICATIONS) }
         val store = Store(this)
         setContent {
+            val initial = remember { store.load() }
+            var themeKey by remember { mutableStateOf(initial.palette to initial.skin) }
+            val scheme = remember(themeKey) { schemeFor(paletteOf(themeKey.first), skinOf(themeKey.second)) }
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                MaterialTheme(colorScheme = if (isSystemInDarkTheme()) DarkC else LightC) {
-                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { App(store) }
+                MaterialTheme(colorScheme = scheme) {
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        App(store) { pal, sk -> themeKey = pal to sk }
+                    }
                 }
             }
         }
@@ -104,7 +109,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         nameOf(e.key) + "\n" + e.value.sortedBy { it.ms }.joinToString("\n") { (if (it.flag) "🚩 " else "🔖 ") + fmt(it.ms) + "  " + it.text }
     }
 
-@Composable fun App(store: Store) {
+@Composable fun App(store: Store, onTheme: (String, String) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var d by remember { mutableStateOf(store.load()) }
@@ -177,6 +182,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         p.addListener(l); onDispose { p.removeListener(l); sp.shutdown() }
     }
     LaunchedEffect(d.fx) { Audio.fx?.on(d.fx) }
+    LaunchedEffect(d.skin, d.palette) { onTheme(d.palette, d.skin) }
     val deleteMark: (Mark) -> Unit = { m ->
         set { x -> x.copy(marks = x.marks - m) }
         scope.launch {
@@ -185,24 +191,30 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         }
     }
     if (gesture && cur != null) { GestureMode(d, set, cur!!, cuts, sp) { gesture = false }; return }
-    val tabs = listOf("ספרייה" to Icons.Rounded.LibraryMusic, "נגן" to Icons.Rounded.GraphicEq, "סימונים" to Icons.Rounded.Bookmarks, "אחסון" to Icons.Rounded.CleaningServices)
+    val tabs = listOf("ספרייה" to Icons.Rounded.LibraryMusic, "נגן" to Icons.Rounded.GraphicEq, "סימונים" to Icons.Rounded.Bookmarks, "אחסון" to Icons.Rounded.CleaningServices, "הגדרות" to Icons.Rounded.Settings)
+    val skin = skinOf(d.skin)
     Scaffold(containerColor = MaterialTheme.colorScheme.background, snackbarHost = { SnackbarHost(snack) },
         bottomBar = { Column {
             val c = cur
             if (c != null && tab != 1) MiniPlayer(c) { tab = 1 }
             NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                tabs.forEachIndexed { i, (l, ic) -> NavigationBarItem(tab == i, { tab = i }, { Icon(ic, null) }, label = { Text(l) }) }
+                tabs.forEachIndexed { i, (l, ic) -> NavigationBarItem(tab == i, { tab = i }, { Icon(ic, null) }, label = { Text(l, maxLines = 1) }) }
             }
         } }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
                 0 -> Library(d, set, all, cur) { c -> playClip(c, -1L); tab = 1 }
-                1 -> PlayerTab(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
+                1 -> when (skin) {
+                    Skin.SPOTIFY -> PlayerSpotify(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
+                    Skin.YTM -> PlayerYtm(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
+                    else -> PlayerTab(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
+                }
                 2 -> MarksTab(d, all, deleteMark) { uri, ms ->
                     val c = all.find { it.uri.toString() == uri }
                     if (c == null) err = "ההקלטה לא נמצאת בתיקייה הנוכחית" else { playClip(c, ms); tab = 1 }
                 }
-                else -> StorageTab(d, all, ::refresh)
+                3 -> StorageTab(d, all, ::refresh)
+                else -> SettingsScreen(d, set)
             }
         }
     }

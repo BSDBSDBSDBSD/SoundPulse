@@ -11,7 +11,8 @@ import java.io.File
 @Serializable data class AppData(
     val folder: String? = null, val played: Set<String> = emptySet(), val marks: List<Mark> = emptyList(), val fx: Boolean = true,
     val pos: Map<String, Long> = emptyMap(), val speed: Float = 1f, val skip: Boolean = false,
-    val autoNext: Boolean = true, val invert: Boolean = false, val speak: Boolean = false
+    val autoNext: Boolean = true, val invert: Boolean = false, val speak: Boolean = false,
+    val skin: String = "soundpulse", val palette: String = "aurora", val hyper: Boolean = false
 )
 
 val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
