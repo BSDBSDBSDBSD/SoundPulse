@@ -2,6 +2,8 @@ name: Build APK
 on:
   push:
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,7 +17,20 @@ jobs:
         with:
           gradle-version: 8.9
       - run: gradle assembleDebug --no-daemon
+      - name: Rename APK
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/*.apk out/SoundPulse.apk
       - uses: actions/upload-artifact@v4
         with:
           name: focus-audio-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: out/SoundPulse.apk
+      - name: Publish APK to a Release (direct phone download)
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/crash-report'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: SoundPulse — latest build
+          body: "APK מתעדכן בכל בנייה. הורד את SoundPulse.apk והתקן בטלפון."
+          files: out/SoundPulse.apk
+          prerelease: true
