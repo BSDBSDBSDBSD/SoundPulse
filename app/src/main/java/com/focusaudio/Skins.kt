@@ -37,6 +37,7 @@ private val Coral = Color(0xFFE5566D)
 @Composable fun PlayerYtm(d: AppData, set: Setter, cur: Clip?, env: FloatArray?, cuts: List<Long>, sleepAt: Long, onSleep: (Long) -> Unit, onDelete: (Mark) -> Unit, onGesture: () -> Unit) =
     SkinPlayer(Skin.YTM, d, set, cur, env, cuts, sleepAt, onSleep, onDelete, onGesture)
 
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable private fun SkinPlayer(
     skin: Skin, d: AppData, set: Setter, cur: Clip?, env: FloatArray?, cuts: List<Long>,
     sleepAt: Long, onSleep: (Long) -> Unit, onDelete: (Mark) -> Unit, onGesture: () -> Unit
@@ -52,6 +53,7 @@ private val Coral = Color(0xFFE5566D)
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var note by rememberSaveable { mutableStateOf("") }
     var editing by remember { mutableStateOf<Mark?>(null) }
+    var sheet by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { while (true) { runCatching { pos = p.currentPosition; dur = p.duration.let { if (it > 0) it else 1L }; playing = p.isPlaying }; now = System.currentTimeMillis(); delay(250) } }
 
     val bg = Brush.verticalGradient(listOf(skinTop(skin, pal), skinBg(skin, pal), skinBg(skin, pal)))
@@ -66,106 +68,73 @@ private val Coral = Color(0xFFE5566D)
         fun nextChapter() { val t = cuts.firstOrNull { it > pos + 500 }; if (t != null) seek(t) else seek(dur) }
         val sleepLeft = if (sleepAt > now) (sleepAt - now) / 60000 + 1 else 0L
 
-        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 18.dp), contentPadding = PaddingValues(top = 10.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.KeyboardArrowDown, null, tint = White)
-                    Text(if (skin == Skin.YTM) "הנגן" else "מושמע מתוך הספרייה", style = MaterialTheme.typography.labelMedium, color = Color(0xCCFFFFFF))
-                    Icon(Icons.Rounded.MoreVert, null, tint = White)
+        Column(Modifier.fillMaxSize().padding(horizontal = 18.dp).padding(top = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.KeyboardArrowDown, null, tint = White)
+                Text(if (skin == Skin.YTM) "הנגן" else "מושמע מתוך הספרייה", style = MaterialTheme.typography.labelMedium, color = Color(0xCCFFFFFF))
+                Icon(Icons.Rounded.MoreVert, null, tint = White)
+            }
+            // "art" = the live waveform, filling the free space
+            Box(Modifier.fillMaxWidth().weight(1f).heightIn(min = 120.dp).clip(RoundedCornerShape(if (skin == Skin.YTM) 10.dp else 16.dp))
+                .background(Brush.linearGradient(listOf(accent.copy(alpha = .9f), Color(pal.c2).copy(alpha = .55f), Color(pal.c3).copy(alpha = .4f))))) {
+                Box(Modifier.align(Alignment.Center).fillMaxWidth().padding(14.dp)) { Wave(env, pos, dur, cuts, marks) { seek(it) } }
+                Text(cur.name.substringBeforeLast('.'), Modifier.align(Alignment.BottomStart).padding(14.dp),
+                    color = White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(cur.name.substringBeforeLast('.'), color = White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (env == null) "מנתח..." else "פרקים: ${cuts.size + 1} · סימונים: ${marks.size}", color = Color(0xB3FFFFFF), style = MaterialTheme.typography.bodySmall)
+                }
+                IconButton({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "דגל" }, true)) }; note = "" }) {
+                    Icon(if (skin == Skin.YTM) Icons.Rounded.ThumbUp else Icons.Rounded.Favorite, "סמן", tint = accent)
                 }
             }
-            // "art" = the live waveform in a large rounded tile
-            item {
-                Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(if (skin == Skin.YTM) 10.dp else 16.dp))
-                    .background(Brush.linearGradient(listOf(accent.copy(alpha = .9f), Color(pal.c2).copy(alpha = .55f), Color(pal.c3).copy(alpha = .4f))))) {
-                    Box(Modifier.align(Alignment.Center).fillMaxWidth().padding(14.dp)) {
-                        Wave(env, pos, dur, cuts, marks) { seek(it) }
-                    }
-                    Text(cur.name.substringBeforeLast('.'), Modifier.align(Alignment.BottomStart).padding(16.dp),
-                        color = White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+            LinearProgressIndicator(progress = { (pos.toFloat() / dur).coerceIn(0f, 1f) }, color = if (skin == Skin.YTM) Color(0xFFFF0033) else White,
+                trackColor = Color(0x33FFFFFF), modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(3.dp)))
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                Text(fmt(pos), color = Color(0xB3FFFFFF), style = MaterialTheme.typography.labelMedium)
+                Text(fmt(dur), color = Color(0xB3FFFFFF), style = MaterialTheme.typography.labelMedium)
             }
-            // title row + like
-            item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(cur.name.substringBeforeLast('.'), color = White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(if (env == null) "מנתח את ההקלטה..." else "פרקים: ${cuts.size + 1} · סימונים: ${marks.size}", color = Color(0xB3FFFFFF), style = MaterialTheme.typography.bodyMedium)
-                    }
-                    IconButton({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "דגל" }, true)) }; note = "" }) {
-                        Icon(if (skin == Skin.YTM) Icons.Rounded.ThumbUp else Icons.Rounded.Favorite, "סמן", tint = accent)
-                    }
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
+                IconButton({ prevChapter() }, Modifier.size(46.dp)) { Icon(Icons.Rounded.SkipPrevious, "פרק קודם", Modifier.size(30.dp), tint = White) }
+                IconButton({ seek(pos - 30_000) }, Modifier.size(46.dp)) { Icon(Icons.Rounded.Replay30, "אחורה 30", Modifier.size(28.dp), tint = White) }
+                Box(Modifier.size(66.dp).clip(CircleShape).background(White).clickable { runCatching { if (p.isPlaying) p.pause() else p.play() } }, Alignment.Center) {
+                    Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "נגן או השהה", Modifier.size(38.dp), tint = Black)
                 }
+                IconButton({ seek(pos + 30_000) }, Modifier.size(46.dp)) { Icon(Icons.Rounded.Forward30, "קדימה 30", Modifier.size(28.dp), tint = White) }
+                IconButton({ nextChapter() }, Modifier.size(46.dp)) { Icon(Icons.Rounded.SkipNext, "פרק הבא", Modifier.size(30.dp), tint = White) }
             }
-            // progress
-            item {
-                LinearProgressIndicator(progress = { (pos.toFloat() / dur).coerceIn(0f, 1f) }, color = if (skin == Skin.YTM) Color(0xFFFF0033) else White,
-                    trackColor = Color(0x33FFFFFF), modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(3.dp)))
-                Row(Modifier.fillMaxWidth().padding(top = 6.dp), Arrangement.SpaceBetween) {
-                    Text(fmt(pos), color = Color(0xB3FFFFFF), style = MaterialTheme.typography.labelMedium)
-                    Text(fmt(dur), color = Color(0xB3FFFFFF), style = MaterialTheme.typography.labelMedium)
-                }
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                AssistChip(onClick = {
+                    val i = speeds.indexOf(d.speed); val nv = speeds[(if (i < 0) 1 else i + 1) % speeds.size]
+                    set { it.copy(speed = nv) }; runCatching { p.setPlaybackSpeed(nv) }
+                }, label = { Text("${d.speed}x") }, leadingIcon = { Icon(Icons.Rounded.Speed, null, Modifier.size(18.dp)) })
+                AssistChip(onClick = {
+                    if (sleepLeft <= 0L) onSleep(System.currentTimeMillis() + 15 * 60000L)
+                    else if (sleepLeft <= 15) onSleep(System.currentTimeMillis() + 30 * 60000L)
+                    else if (sleepLeft <= 30) onSleep(System.currentTimeMillis() + 60 * 60000L)
+                    else onSleep(0L)
+                }, label = { Text(if (sleepLeft > 0) "שינה $sleepLeft׳" else "שינה") }, leadingIcon = { Icon(Icons.Rounded.Timer, null, Modifier.size(18.dp)) })
+                FilterChip(selected = d.fx, onClick = { val nv = !d.fx; set { it.copy(fx = nv) }; Audio.fx?.on(nv) }, label = { Text("מעבד דיבור") })
+                FilterChip(selected = d.skip, onClick = { val nv = !d.skip; set { it.copy(skip = nv) }; runCatching { p.skipSilenceEnabled = nv } }, label = { Text("דלג שקטים") })
+                FilterChip(selected = d.autoNext, onClick = { val nv = !d.autoNext; set { it.copy(autoNext = nv) } }, label = { Text("המשך") })
             }
-            // transport
-            item {
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
-                    IconButton({ prevChapter() }, Modifier.size(52.dp)) { Icon(Icons.Rounded.SkipPrevious, "פרק קודם", Modifier.size(34.dp), tint = White) }
-                    IconButton({ seek(pos - 30_000) }, Modifier.size(48.dp)) { Icon(Icons.Rounded.Replay30, "אחורה 30", Modifier.size(28.dp), tint = White) }
-                    Box(Modifier.size(70.dp).clip(CircleShape).background(White).clickable { runCatching { if (p.isPlaying) p.pause() else p.play() } }, Alignment.Center) {
-                        Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "נגן או השהה", Modifier.size(40.dp), tint = Black)
-                    }
-                    IconButton({ seek(pos + 30_000) }, Modifier.size(48.dp)) { Icon(Icons.Rounded.Forward30, "קדימה 30", Modifier.size(28.dp), tint = White) }
-                    IconButton({ nextChapter() }, Modifier.size(52.dp)) { Icon(Icons.Rounded.SkipNext, "פרק הבא", Modifier.size(34.dp), tint = White) }
-                }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(note, { note = it }, Modifier.weight(1f), placeholder = { Text("הערה לנקודה") }, singleLine = true, shape = RoundedCornerShape(14.dp))
+                FilledIconButton({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "סימנייה" })) }; note = "" }, Modifier.size(52.dp)) { Icon(Icons.Rounded.Bookmark, "סימנייה") }
+                FilledIconButton({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "דגל" }, true)) }; note = "" }, Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Coral, contentColor = White)) { Icon(Icons.Rounded.Flag, "דגל") }
             }
-            // option chips
-            item {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
-                    AssistChip(onClick = {
-                        val i = speeds.indexOf(d.speed); val nv = speeds[(if (i < 0) 1 else i + 1) % speeds.size]
-                        set { it.copy(speed = nv) }; runCatching { p.setPlaybackSpeed(nv) }
-                    }, label = { Text("${d.speed}x") }, leadingIcon = { Icon(Icons.Rounded.Speed, null, Modifier.size(18.dp)) })
-                    AssistChip(onClick = {
-                        if (sleepLeft <= 0L) onSleep(System.currentTimeMillis() + 15 * 60000L)
-                        else if (sleepLeft <= 15) onSleep(System.currentTimeMillis() + 30 * 60000L)
-                        else if (sleepLeft <= 30) onSleep(System.currentTimeMillis() + 60 * 60000L)
-                        else onSleep(0L)
-                    }, label = { Text(if (sleepLeft > 0) "$sleepLeft דק'" else "שינה") }, leadingIcon = { Icon(Icons.Rounded.Timer, null, Modifier.size(18.dp)) })
-                    FilterChip(selected = d.fx, onClick = { val nv = !d.fx; set { it.copy(fx = nv) }; Audio.fx?.on(nv) }, label = { Text("דיבור") })
-                    FilterChip(selected = d.skip, onClick = { val nv = !d.skip; set { it.copy(skip = nv) }; runCatching { p.skipSilenceEnabled = nv } }, label = { Text("דלג שקטים") })
-                    FilterChip(selected = d.autoNext, onClick = { val nv = !d.autoNext; set { it.copy(autoNext = nv) } }, label = { Text("המשך") })
-                }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onGesture, Modifier.weight(1f).height(48.dp)) { Icon(Icons.Rounded.DirectionsWalk, null); Spacer(Modifier.width(6.dp)); Text("מצב הליכה") }
+                FilledTonalButton({ sheet = true }, Modifier.weight(1f).height(48.dp)) { Icon(Icons.Rounded.FormatListBulleted, null); Spacer(Modifier.width(6.dp)); Text("פרקים וסימונים") }
             }
-            // bookmark + note
-            item {
-                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(18.dp)) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("הערה לנקודה הזו") }, singleLine = true, shape = RoundedCornerShape(14.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "סימנייה" })) }; note = "" }, Modifier.weight(1f).height(48.dp)) { Icon(Icons.Rounded.Bookmark, null); Spacer(Modifier.width(6.dp)); Text("סימנייה") }
-                            Button({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "דגל" }, true)) }; note = "" }, Modifier.weight(1f).height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = Coral)) { Icon(Icons.Rounded.Flag, null); Spacer(Modifier.width(6.dp)); Text("דגל") }
-                        }
-                    }
-                }
+            if (skin == Skin.YTM) Row(Modifier.fillMaxWidth().padding(top = 2.dp), Arrangement.SpaceAround) {
+                Text("הבא", color = White, fontWeight = FontWeight.Bold); Text("מילים", color = Color(0x99FFFFFF)); Text("קשור", color = Color(0x99FFFFFF))
             }
-            item { FilledTonalButton(onGesture, Modifier.fillMaxWidth().height(50.dp)) { Icon(Icons.Rounded.DirectionsWalk, null); Spacer(Modifier.width(8.dp)); Text("מצב הליכה (מחוות)") } }
-            if (cuts.isNotEmpty()) item { Text("פרקים", color = White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium) }
-            items(cuts.size) { i -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { seek(cuts[i]) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Segment, null, tint = Color(pal.c3)); Spacer(Modifier.width(12.dp)); Text("פרק ${i + 2}", Modifier.weight(1f), color = White); Text(fmt(cuts[i]), color = Color(0xB3FFFFFF)) } }
-            if (marks.isNotEmpty()) item { Text("סימונים והערות", color = White, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium) }
-            items(marks.size) { i -> val m = marks[i]
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { seek(m.ms) }.padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(if (m.flag) Icons.Rounded.Flag else Icons.Rounded.Bookmark, null, tint = if (m.flag) Coral else accent)
-                    Spacer(Modifier.width(12.dp)); Text(m.text, Modifier.weight(1f), color = White, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(fmt(m.ms), color = Color(0xB3FFFFFF))
-                    IconButton({ editing = m }) { Icon(Icons.Rounded.Edit, "ערוך", Modifier.size(18.dp), tint = White) }
-                    IconButton({ onDelete(m) }) { Icon(Icons.Rounded.Close, "מחק", Modifier.size(18.dp), tint = White) }
-                } }
-            if (skin == Skin.YTM) item {
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), Arrangement.SpaceAround) {
-                    Text("הבא", color = White, fontWeight = FontWeight.Bold); Text("מילים", color = Color(0x99FFFFFF)); Text("קשור", color = Color(0x99FFFFFF))
-                }
-            }
+        }
+        if (sheet) ModalBottomSheet(onDismissRequest = { sheet = false }) {
+            ExtrasSheet(cuts, marks, { seek(it); sheet = false }, { editing = it }, onDelete)
         }
         }
     }
