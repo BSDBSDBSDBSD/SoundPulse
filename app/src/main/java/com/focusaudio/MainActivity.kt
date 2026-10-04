@@ -420,6 +420,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable fun PlayerTab(d: AppData, set: Setter, cur: Clip?, env: FloatArray?, cuts: List<Long>, sleepAt: Long, onSleep: (Long) -> Unit, onDelete: (Mark) -> Unit, onGesture: () -> Unit) {
     val ctx = LocalContext.current
     val p = remember { Audio.player(ctx) }
@@ -429,6 +430,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var note by rememberSaveable { mutableStateOf("") }
     var editing by remember { mutableStateOf<Mark?>(null) }
+    var sheet by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     LaunchedEffect(Unit) { while (true) { runCatching { pos = p.currentPosition; dur = p.duration.let { if (it > 0) it else 1L }; playing = p.isPlaying }; now = System.currentTimeMillis(); delay(250) } }
     if (cur == null) { Empty(Icons.Rounded.GraphicEq, "בחר הקלטה מהספרייה"); return }
@@ -436,73 +438,59 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     val marks = d.marks.filter { it.uri == key }.sortedBy { it.ms }
     val speeds = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
     fun seek(ms: Long) = runCatching { p.seekTo(ms.coerceIn(0, dur)) }
+    fun prevChapter() { seek(cuts.lastOrNull { it < pos - 1200 } ?: 0L) }
+    fun nextChapter() { val t = cuts.firstOrNull { it > pos + 500 }; if (t != null) seek(t) else seek(dur) }
     val sleepLeft = if (sleepAt > now) (sleepAt - now) / 60000 + 1 else 0L
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
-        item { Text(cur.name.substringBeforeLast('.'), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-        item {
-            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                Column(Modifier.padding(14.dp)) {
-                    Wave(env, pos, dur, cuts, marks) { seek(it) }
-                    Row(Modifier.fillMaxWidth().padding(top = 6.dp), Arrangement.SpaceBetween) {
-                        Text(fmt(pos), style = MaterialTheme.typography.labelLarge)
-                        if (env == null) Text("מנתח את ההקלטה...", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(fmt(dur), style = MaterialTheme.typography.labelLarge)
-                    }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(cur.name.substringBeforeLast('.'), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+            Column(Modifier.padding(14.dp)) {
+                Wave(env, pos, dur, cuts, marks) { seek(it) }
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), Arrangement.SpaceBetween) {
+                    Text(fmt(pos), style = MaterialTheme.typography.labelLarge)
+                    if (env == null) Text("מנתח...", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(fmt(dur), style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
-        item {
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
-                IconButton({ seek(pos - 30_000) }, Modifier.size(56.dp)) { Icon(Icons.Rounded.Replay30, "אחורה 30 שניות", Modifier.size(34.dp)) }
-                FilledIconButton({ runCatching { if (p.isPlaying) p.pause() else p.play() } }, Modifier.size(76.dp)) {
-                    Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "נגן או השהה", Modifier.size(42.dp))
-                }
-                IconButton({ seek(pos + 30_000) }, Modifier.size(56.dp)) { Icon(Icons.Rounded.Forward30, "קדימה 30 שניות", Modifier.size(34.dp)) }
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
+            IconButton({ prevChapter() }, Modifier.size(46.dp)) { Icon(Icons.Rounded.SkipPrevious, "פרק קודם", Modifier.size(28.dp)) }
+            IconButton({ seek(pos - 30_000) }, Modifier.size(52.dp)) { Icon(Icons.Rounded.Replay30, "אחורה 30 שניות", Modifier.size(32.dp)) }
+            FilledIconButton({ runCatching { if (p.isPlaying) p.pause() else p.play() } }, Modifier.size(70.dp)) {
+                Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "נגן או השהה", Modifier.size(40.dp))
             }
+            IconButton({ seek(pos + 30_000) }, Modifier.size(52.dp)) { Icon(Icons.Rounded.Forward30, "קדימה 30 שניות", Modifier.size(32.dp)) }
+            IconButton({ nextChapter() }, Modifier.size(46.dp)) { Icon(Icons.Rounded.SkipNext, "פרק הבא", Modifier.size(28.dp)) }
         }
-        item {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
-                AssistChip(onClick = {
-                    val i = speeds.indexOf(d.speed); val nv = speeds[(if (i < 0) 1 else i + 1) % speeds.size]
-                    set { it.copy(speed = nv) }; runCatching { p.setPlaybackSpeed(nv) }
-                }, label = { Text("${d.speed}x") }, leadingIcon = { Icon(Icons.Rounded.Speed, null, Modifier.size(18.dp)) })
-                AssistChip(onClick = {
-                    if (sleepLeft <= 0L) onSleep(System.currentTimeMillis() + 15 * 60000L)
-                    else if (sleepLeft <= 15) onSleep(System.currentTimeMillis() + 30 * 60000L)
-                    else if (sleepLeft <= 30) onSleep(System.currentTimeMillis() + 60 * 60000L)
-                    else onSleep(0L)
-                }, label = { Text(if (sleepLeft > 0) "נכבה בעוד $sleepLeft דק'" else "טיימר שינה") }, leadingIcon = { Icon(Icons.Rounded.Timer, null, Modifier.size(18.dp)) })
-                FilterChip(selected = d.fx, onClick = { val nv = !d.fx; set { it.copy(fx = nv) }; Audio.fx?.on(nv) }, label = { Text("מעבד דיבור") })
-                FilterChip(selected = d.skip, onClick = { val nv = !d.skip; set { it.copy(skip = nv) }; runCatching { p.skipSilenceEnabled = nv } }, label = { Text("דלג שקטים") })
-                FilterChip(selected = d.autoNext, onClick = { val nv = !d.autoNext; set { it.copy(autoNext = nv) } }, label = { Text("המשך אוטומטי") })
-            }
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            AssistChip(onClick = {
+                val i = speeds.indexOf(d.speed); val nv = speeds[(if (i < 0) 1 else i + 1) % speeds.size]
+                set { it.copy(speed = nv) }; runCatching { p.setPlaybackSpeed(nv) }
+            }, label = { Text("${d.speed}x") }, leadingIcon = { Icon(Icons.Rounded.Speed, null, Modifier.size(18.dp)) })
+            AssistChip(onClick = {
+                if (sleepLeft <= 0L) onSleep(System.currentTimeMillis() + 15 * 60000L)
+                else if (sleepLeft <= 15) onSleep(System.currentTimeMillis() + 30 * 60000L)
+                else if (sleepLeft <= 30) onSleep(System.currentTimeMillis() + 60 * 60000L)
+                else onSleep(0L)
+            }, label = { Text(if (sleepLeft > 0) "שינה $sleepLeft׳" else "טיימר שינה") }, leadingIcon = { Icon(Icons.Rounded.Timer, null, Modifier.size(18.dp)) })
+            FilterChip(selected = d.fx, onClick = { val nv = !d.fx; set { it.copy(fx = nv) }; Audio.fx?.on(nv) }, label = { Text("מעבד דיבור") })
+            FilterChip(selected = d.skip, onClick = { val nv = !d.skip; set { it.copy(skip = nv) }; runCatching { p.skipSilenceEnabled = nv } }, label = { Text("דלג שקטים") })
+            FilterChip(selected = d.autoNext, onClick = { val nv = !d.autoNext; set { it.copy(autoNext = nv) } }, label = { Text("המשך אוטומטי") })
         }
-        item {
-            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("הערה לנקודה הזו") }, singleLine = true, shape = RoundedCornerShape(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "סימנייה" })) }; note = "" },
-                            Modifier.weight(1f).height(48.dp)) { Icon(Icons.Rounded.Bookmark, null); Spacer(Modifier.width(6.dp)); Text("סימנייה") }
-                        Button({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "דגל" }, true)) }; note = "" },
-                            Modifier.weight(1f).height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = Coral)) { Icon(Icons.Rounded.Flag, null); Spacer(Modifier.width(6.dp)); Text("דגל") }
-                    }
-                }
-            }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(note, { note = it }, Modifier.weight(1f), placeholder = { Text("הערה לנקודה") }, singleLine = true, shape = RoundedCornerShape(14.dp))
+            FilledIconButton({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "סימנייה" })) }; note = "" }, Modifier.size(52.dp)) { Icon(Icons.Rounded.Bookmark, "הוסף סימנייה") }
+            FilledIconButton({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "דגל" }, true)) }; note = "" }, Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Coral, contentColor = androidx.compose.ui.graphics.Color.White)) { Icon(Icons.Rounded.Flag, "הוסף דגל") }
         }
-        item { FilledTonalButton(onGesture, Modifier.fillMaxWidth().height(52.dp)) { Icon(Icons.Rounded.DirectionsWalk, null); Spacer(Modifier.width(8.dp)); Text("מצב הליכה (מחוות)") } }
-        if (cuts.isNotEmpty()) item { Text("פרקים", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
-        items(cuts.size) { i -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { seek(cuts[i]) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Segment, null, tint = MaterialTheme.colorScheme.tertiary); Spacer(Modifier.width(12.dp)); Text("פרק ${i + 2}", Modifier.weight(1f)); Text(fmt(cuts[i]), color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-        if (marks.isNotEmpty()) item { Text("סימנים והערות", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
-        items(marks.size) { i -> val m = marks[i]
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { seek(m.ms) }.padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (m.flag) Icons.Rounded.Flag else Icons.Rounded.Bookmark, null, tint = if (m.flag) Coral else MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(12.dp)); Text(m.text, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(fmt(m.ms), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton({ editing = m }) { Icon(Icons.Rounded.Edit, "ערוך", Modifier.size(18.dp)) }
-                IconButton({ onDelete(m) }) { Icon(Icons.Rounded.Close, "מחק", Modifier.size(18.dp)) }
-            } }
+        Spacer(Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onGesture, Modifier.weight(1f).height(50.dp)) { Icon(Icons.Rounded.DirectionsWalk, null); Spacer(Modifier.width(6.dp)); Text("מצב הליכה") }
+            FilledTonalButton({ sheet = true }, Modifier.weight(1f).height(50.dp)) { Icon(Icons.Rounded.FormatListBulleted, null); Spacer(Modifier.width(6.dp)); Text("פרקים וסימונים") }
+        }
+    }
+    if (sheet) ModalBottomSheet(onDismissRequest = { sheet = false }) {
+        ExtrasSheet(cuts, marks, { seek(it); sheet = false }, { editing = it }, onDelete)
     }
     editing?.let { m ->
         var t by remember(m) { mutableStateOf(m.text) }
@@ -510,6 +498,24 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
             text = { OutlinedTextField(t, { t = it }, singleLine = true) },
             confirmButton = { TextButton({ val nt = t.ifBlank { m.text }; set { x -> x.copy(marks = x.marks.map { e -> if (e == m) e.copy(text = nt) else e }) }; editing = null }) { Text("שמור") } },
             dismissButton = { TextButton({ editing = null }) { Text("ביטול") } })
+    }
+}
+
+@Composable fun ExtrasSheet(cuts: List<Long>, marks: List<Mark>, onSeek: (Long) -> Unit, onEdit: (Mark) -> Unit, onDelete: (Mark) -> Unit) {
+    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp).padding(horizontal = 16.dp), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (cuts.isEmpty() && marks.isEmpty()) item { Text("עדיין אין פרקים או סימונים בהקלטה הזו", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (cuts.isNotEmpty()) item { Text("פרקים", Modifier.padding(vertical = 6.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        items(cuts.size) { i -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onSeek(cuts[i]) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Segment, null, tint = MaterialTheme.colorScheme.tertiary); Spacer(Modifier.width(12.dp)); Text("פרק ${i + 2}", Modifier.weight(1f)); Text(fmt(cuts[i]), color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        if (marks.isNotEmpty()) item { Text("סימונים והערות", Modifier.padding(vertical = 6.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+        items(marks.size) { i -> val m = marks[i]
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onSeek(m.ms) }.padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(if (m.flag) Icons.Rounded.Flag else Icons.Rounded.Bookmark, null, tint = if (m.flag) Coral else MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(12.dp)); Text(m.text, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(fmt(m.ms), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton({ onEdit(m) }) { Icon(Icons.Rounded.Edit, "ערוך", Modifier.size(18.dp)) }
+                IconButton({ onDelete(m) }) { Icon(Icons.Rounded.Close, "מחק", Modifier.size(18.dp)) }
+            } }
     }
 }
 
@@ -591,27 +597,56 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         compress(ctx, tree, list[0]) { run(list.drop(1)) }
     }
     if (tree == null) { Empty(Icons.Rounded.CleaningServices, "בחר תיקייה בלשונית הספרייה"); return }
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val playedMb = played.sumOf { it.size } / 1e6
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("ניהול אחסון", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Button({ busy = true; msg = "סורק..."; scope.launch { res = withContext(Dispatchers.IO) { runCatching { scan(ctx, all) }.getOrNull() }; busy = false; msg = if (res == null) "הסריקה נכשלה" else "" } },
-            Modifier.fillMaxWidth().height(52.dp), enabled = !busy) { Icon(Icons.Rounded.Search, null); Spacer(Modifier.width(8.dp)); Text("סרוק כפולים, ישנים וזבל") }
+
+        // Compress played recordings — the main space saver, made clear and prominent.
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .22f)), Alignment.Center) {
+                        Icon(Icons.Rounded.Compress, null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("דחיסת הקלטות שהושמעו", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("ממיר ל-AAC וחוסך מקום. הקלטות שלא הושמעו לא נוגעים בהן.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (played.isNotEmpty())
+                    Text("${played.size} הקלטות שהושמעו במלואן · ${"%.1f".format(playedMb)} MB זמינות לדחיסה", style = MaterialTheme.typography.bodyMedium)
+                else
+                    Text("אין כרגע הקלטות שהושמעו במלואן. השמע הקלטה עד הסוף והיא תופיע כאן.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button({ run(played) }, Modifier.fillMaxWidth().height(50.dp), enabled = !busy && played.isNotEmpty()) {
+                    Icon(Icons.Rounded.Compress, null); Spacer(Modifier.width(8.dp)); Text(if (busy) "מכווץ..." else "כווץ עכשיו וחסוך מקום")
+                }
+                if (busy) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (msg.isNotEmpty()) Text(msg, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (msg.isNotEmpty()) Text(msg, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        HorizontalDivider()
+        Text("ניקוי קבצים", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text("סורק את התיקייה ומאתר מה אפשר למחוק כדי לפנות מקום.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FilledTonalButton({ busy = true; msg = "סורק..."; scope.launch { res = withContext(Dispatchers.IO) { runCatching { scan(ctx, all) }.getOrNull() }; busy = false; msg = if (res == null) "הסריקה נכשלה" else "" } },
+            Modifier.fillMaxWidth().height(50.dp), enabled = !busy) { Icon(Icons.Rounded.Search, null); Spacer(Modifier.width(8.dp)); Text("סרוק כפולים, ישנים וזבל") }
         res?.let { r ->
-            listOf("קבצים כפולים" to r.dups, "הקלטות ישנות (מעל 90 יום)" to r.old, "קבצי זבל זמניים" to r.junk).forEach { (t, l) ->
+            listOf(Triple("קבצים כפולים", Icons.Rounded.ContentCopy, r.dups), Triple("הקלטות ישנות (מעל 90 יום)", Icons.Rounded.History, r.old), Triple("קבצי זבל זמניים", Icons.Rounded.DeleteSweep, r.junk)).forEach { (t, ic, l) ->
                 Card(Modifier.fillMaxWidth().clickable(enabled = l.isNotEmpty()) { ask = t to l }, shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(t, Modifier.weight(1f)); Text("${l.size} • ${"%.1f".format(l.sumOf { it.size } / 1e6)} MB", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(ic, null, tint = if (l.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+                        Spacer(Modifier.width(12.dp))
+                        Text(t, Modifier.weight(1f))
+                        Text("${l.size} · ${"%.1f".format(l.sumOf { it.size } / 1e6)} MB", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
         }
-        HorizontalDivider()
-        Text("קבצים שהושמעו במלואם: ${played.size}")
-        FilledTonalButton({ run(played) }, Modifier.fillMaxWidth().height(52.dp), enabled = !busy && played.isNotEmpty()) {
-            Text("כווץ קבצים שהושמעו (${"%.1f".format(played.sumOf { it.size } / 1e6)} MB)")
-        }
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (msg.isNotEmpty()) Text(msg, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     ask?.let { (t, l) ->
         AlertDialog(onDismissRequest = { ask = null }, title = { Text("למחוק $t?") },
