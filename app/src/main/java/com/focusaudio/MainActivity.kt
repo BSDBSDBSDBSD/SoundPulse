@@ -29,6 +29,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -127,6 +128,16 @@ class MainActivity : ComponentActivity() {
 
 fun fmt(ms: Long): String { val s = (ms.coerceAtLeast(0) / 1000); return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s / 60) % 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
 
+fun crashFile(ctx: android.content.Context) = java.io.File(ctx.filesDir, "last_crash.txt")
+fun readCrash(ctx: android.content.Context): String? = runCatching { crashFile(ctx).let { if (it.exists() && it.length() > 0) it.readText() else null } }.getOrNull()
+fun clearCrash(ctx: android.content.Context) { runCatching { crashFile(ctx).delete() } }
+fun copyText(ctx: android.content.Context, text: String) {
+    runCatching {
+        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("SoundPulse crash", text))
+    }
+}
+
 fun shareText(ctx: android.content.Context, text: String) {
     runCatching {
         val i = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text) }
@@ -150,6 +161,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     var env by remember { mutableStateOf<FloatArray?>(null) }
     var gesture by rememberSaveable { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
+    var crashLog by remember { mutableStateOf(readCrash(ctx)) }
     var sleepAt by remember { mutableLongStateOf(0L) }
     val sp = remember { Speaker(ctx) }
     val p = remember { Audio.player(ctx) }
@@ -239,6 +251,30 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
                 else -> StorageTab(d, all, ::refresh)
             }
         }
+    }
+    crashLog?.let { log ->
+        AlertDialog(
+            onDismissRequest = {},
+            icon = { Icon(Icons.Rounded.BugReport, null) },
+            title = { Text("האפליקציה נסגרה בפעם הקודמת") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("נשמר דוח על מה שקרה. אפשר להעתיק או לשתף אותו כדי שנתקן. שום דבר לא נשלח אוטומטית.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) {
+                        Text(log.take(900), Modifier.padding(10.dp).heightIn(max = 220.dp).verticalScroll(rememberScrollState()),
+                            style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    }
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton({ copyText(ctx, log); err = "הדוח הועתק" }) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("העתק") }
+                    TextButton({ shareText(ctx, "SoundPulse crash:\n\n" + log) }) { Icon(Icons.Rounded.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("שתף") }
+                }
+            },
+            dismissButton = { TextButton({ clearCrash(ctx); crashLog = null }) { Text("סגור ומחק") } }
+        )
     }
 }
 
