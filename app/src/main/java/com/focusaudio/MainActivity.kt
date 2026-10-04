@@ -7,6 +7,16 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,7 +29,6 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -58,27 +67,58 @@ import kotlin.math.abs
 
 typealias Setter = ((AppData) -> AppData) -> Unit
 
-private val Teal = Color(0xFF0E9594); private val Coral = Color(0xFFE5566D)
-private val LightC = lightColorScheme(primary = Color(0xFF0B7F7E), secondary = Color(0xFF3D5A80), tertiary = Color(0xFFE0A030),
-    background = Color(0xFFF8F6F2), surface = Color(0xFFF8F6F2), surfaceVariant = Color(0xFFE8ECEB), surfaceContainer = Color(0xFFFFFFFF))
-private val DarkC = darkColorScheme(primary = Color(0xFF4FD1CF), secondary = Color(0xFF9DB7E0), tertiary = Color(0xFFF2C063),
-    background = Color(0xFF121517), surface = Color(0xFF121517), surfaceVariant = Color(0xFF232A2C), surfaceContainer = Color(0xFF1B2124))
+private val Teal = Color(0xFF2DD4BF); private val Coral = Color(0xFFFF6B81); private val Periwinkle = Color(0xFF7C9CF5)
+private val LightC = lightColorScheme(primary = Color(0xFF0B8F86), onPrimary = Color.White, secondary = Color(0xFF4F6FD8), tertiary = Color(0xFFE0A030),
+    background = Color(0xFFF4F7F6), onBackground = Color(0xFF111A1B), surface = Color(0xFFF4F7F6), onSurface = Color(0xFF111A1B),
+    surfaceVariant = Color(0xFFE2EAE9), onSurfaceVariant = Color(0xFF4A5C5C), outline = Color(0xFF7D9090), outlineVariant = Color(0xFFD0DCDB),
+    surfaceContainer = Color(0xFFFFFFFF))
+private val DarkC = darkColorScheme(primary = Teal, onPrimary = Color(0xFF04221F), secondary = Periwinkle, tertiary = Color(0xFFF2C063),
+    background = Color(0xFF0E1416), onBackground = Color(0xFFEAF2F1), surface = Color(0xFF0E1416), onSurface = Color(0xFFEAF2F1),
+    surfaceVariant = Color(0xFF1E282B), onSurfaceVariant = Color(0xFF8AA0A0), outline = Color(0xFF5E7373), outlineVariant = Color(0xFF2A3638),
+    surfaceContainer = Color(0xFF172024))
+
+/** Soft glowing aurora blobs behind the whole app. */
+@Composable fun Aurora(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val a1 = MaterialTheme.colorScheme.primary; val a2 = MaterialTheme.colorScheme.secondary
+    val dark = isSystemInDarkTheme()
+    val t = rememberInfiniteTransition(label = "aurora")
+    val drift by t.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "drift")
+    Box(modifier.background(MaterialTheme.colorScheme.background).drawBehind {
+        val k = if (dark) 0.28f else 0.16f
+        drawRect(Brush.radialGradient(listOf(a1.copy(alpha = k), Color.Transparent), center = Offset(size.width * (0.15f + 0.2f * drift), size.height * 0.08f), radius = size.width * 0.9f))
+        drawRect(Brush.radialGradient(listOf(a2.copy(alpha = k * 0.9f), Color.Transparent), center = Offset(size.width * (0.95f - 0.2f * drift), size.height * 0.32f), radius = size.width * 0.8f))
+    }) { content() }
+}
+
+/** Pulsing orb shown on the player; it breathes while audio is playing. */
+@Composable fun PulseOrb(playing: Boolean, size: androidx.compose.ui.unit.Dp = 150.dp) {
+    val t = rememberInfiniteTransition(label = "orb")
+    val s1 by t.animateFloat(0.92f, 1.08f, infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "s1")
+    val s2 by t.animateFloat(1.0f, 1.22f, infiniteRepeatable(tween(2100, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "s2")
+    val c1 = MaterialTheme.colorScheme.primary; val c2 = MaterialTheme.colorScheme.secondary
+    Box(Modifier.size(size * 1.4f), Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val r = this.size.minDimension / 2f
+            val k1 = if (playing) s1 else 1f; val k2 = if (playing) s2 else 1.05f
+            drawCircle(Brush.radialGradient(listOf(c1.copy(alpha = .35f), Color.Transparent), radius = r), radius = r * 0.95f * k2 / 1.22f * 1.0f)
+            drawCircle(Brush.linearGradient(listOf(c1, c2)), radius = r * 0.56f * k1)
+            drawCircle(Color.White.copy(alpha = .18f), radius = r * 0.56f * k1 * 0.72f)
+        }
+        Icon(Icons.Rounded.GraphicEq, null, Modifier.size(size * 0.36f), tint = Color.White)
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 33 && savedInstanceState == null)
             runCatching { registerForActivityResult(ActivityResultContracts.RequestPermission()) {}.launch(Manifest.permission.POST_NOTIFICATIONS) }
         val store = Store(this)
         setContent {
-            val initial = remember { store.load() }
-            var themeKey by remember { mutableStateOf(initial.palette to initial.skin) }
-            val scheme = remember(themeKey) { schemeFor(paletteOf(themeKey.first), skinOf(themeKey.second)) }
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                MaterialTheme(colorScheme = scheme) {
-                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                        App(store) { pal, sk -> themeKey = pal to sk }
-                    }
+                MaterialTheme(colorScheme = if (isSystemInDarkTheme()) DarkC else LightC) {
+                    Aurora(Modifier.fillMaxSize()) { App(store) }
                 }
             }
         }
@@ -86,16 +126,6 @@ class MainActivity : ComponentActivity() {
 }
 
 fun fmt(ms: Long): String { val s = (ms.coerceAtLeast(0) / 1000); return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s / 60) % 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
-
-fun crashFile(ctx: android.content.Context) = java.io.File(ctx.filesDir, "last_crash.txt")
-fun readCrash(ctx: android.content.Context): String? = runCatching { crashFile(ctx).let { if (it.exists() && it.length() > 0) it.readText() else null } }.getOrNull()
-fun clearCrash(ctx: android.content.Context) { runCatching { crashFile(ctx).delete() } }
-fun copyText(ctx: android.content.Context, text: String) {
-    runCatching {
-        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        cm.setPrimaryClip(android.content.ClipData.newPlainText("SoundPulse crash", text))
-    }
-}
 
 fun shareText(ctx: android.content.Context, text: String) {
     runCatching {
@@ -109,20 +139,17 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         nameOf(e.key) + "\n" + e.value.sortedBy { it.ms }.joinToString("\n") { (if (it.flag) "🚩 " else "🔖 ") + fmt(it.ms) + "  " + it.text }
     }
 
-@Composable fun App(store: Store, onTheme: (String, String) -> Unit) {
+@Composable fun App(store: Store) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var d by remember { mutableStateOf(store.load()) }
     val set: Setter = { f -> d = f(d); val snap = d; scope.launch(Dispatchers.IO) { store.save(snap) } }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var all by remember { mutableStateOf(listOf<Clip>()) }
-    var subfolders by remember { mutableStateOf(listOf<Folder>()) }
-    var path by remember { mutableStateOf(listOf<androidx.documentfile.provider.DocumentFile>()) }
     var cur by remember { mutableStateOf<Clip?>(null) }
     var env by remember { mutableStateOf<FloatArray?>(null) }
     var gesture by rememberSaveable { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
-    var crashLog by remember { mutableStateOf(readCrash(ctx)) }
     var sleepAt by remember { mutableLongStateOf(0L) }
     val sp = remember { Speaker(ctx) }
     val p = remember { Audio.player(ctx) }
@@ -131,13 +158,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     val dS by rememberUpdatedState(d)
     val allS by rememberUpdatedState(all)
     val curS by rememberUpdatedState(cur)
-    fun browseCurrent() {
-        val dir = path.lastOrNull() ?: return
-        scope.launch { val r = withContext(Dispatchers.IO) { browse(ctx, dir) }; subfolders = r.first; all = r.second }
-    }
-    fun refresh() { browseCurrent() }
-    val enterFolder: (Folder) -> Unit = { f -> path = path + f.doc }
-    val goBack: () -> Unit = { if (path.size > 1) path = path.dropLast(1) }
+    fun refresh() { d.folder?.let { f -> scope.launch { all = withContext(Dispatchers.IO) { clips(ctx, Uri.parse(f)) } } } }
     val playClip: (Clip, Long) -> Unit = { c, start ->
         curS?.let { old -> runCatching { val k = old.uri.toString(); val ps = p.currentPosition; set { x -> x.copy(pos = x.pos + (k to ps)) } } }
         val st = if (start >= 0) start else maxOf(0L, (dS.pos[c.uri.toString()] ?: 0L) - 3000L)
@@ -146,11 +167,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         runCatching { p.setPlaybackSpeed(dS.speed); p.skipSilenceEnabled = dS.skip }
     }
     val playRef by rememberUpdatedState(playClip)
-    LaunchedEffect(d.folder) {
-        val root = d.folder?.let { withContext(Dispatchers.IO) { rootDoc(ctx, Uri.parse(it)) } }
-        path = if (root != null) listOf(root) else emptyList()
-    }
-    LaunchedEffect(path) { if (path.isNotEmpty()) browseCurrent() else { all = emptyList(); subfolders = emptyList() } }
+    LaunchedEffect(d.folder) { refresh() }
     LaunchedEffect(cur) {
         env = null
         cur?.let { c -> env = runCatching { analyze(ctx, c.uri, c.uri.toString() + c.size + c.mod) }.getOrNull() }
@@ -194,7 +211,6 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         p.addListener(l); onDispose { p.removeListener(l); sp.shutdown() }
     }
     LaunchedEffect(d.fx) { Audio.fx?.on(d.fx) }
-    LaunchedEffect(d.skin, d.palette) { onTheme(d.palette, d.skin) }
     val deleteMark: (Mark) -> Unit = { m ->
         set { x -> x.copy(marks = x.marks - m) }
         scope.launch {
@@ -203,56 +219,26 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         }
     }
     if (gesture && cur != null) { GestureMode(d, set, cur!!, cuts, sp) { gesture = false }; return }
-    val tabs = listOf("ספרייה" to Icons.Rounded.LibraryMusic, "נגן" to Icons.Rounded.GraphicEq, "סימונים" to Icons.Rounded.Bookmarks, "אחסון" to Icons.Rounded.CleaningServices, "הגדרות" to Icons.Rounded.Settings)
-    val skin = skinOf(d.skin)
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, snackbarHost = { SnackbarHost(snack) },
+    val tabs = listOf("ספרייה" to Icons.Rounded.LibraryMusic, "נגן" to Icons.Rounded.GraphicEq, "סימונים" to Icons.Rounded.Bookmarks, "אחסון" to Icons.Rounded.CleaningServices)
+    Scaffold(containerColor = Color.Transparent, snackbarHost = { SnackbarHost(snack) },
         bottomBar = { Column {
             val c = cur
             if (c != null && tab != 1) MiniPlayer(c) { tab = 1 }
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                tabs.forEachIndexed { i, (l, ic) -> NavigationBarItem(tab == i, { tab = i }, { Icon(ic, null) }, label = { Text(l, maxLines = 1) }) }
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f)) {
+                tabs.forEachIndexed { i, (l, ic) -> NavigationBarItem(tab == i, { tab = i }, { Icon(ic, null) }, label = { Text(l) }) }
             }
         } }) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
+        Box(Modifier.padding(pad).statusBarsPadding().fillMaxSize()) {
             when (tab) {
-                0 -> Library(d, set, all, subfolders, (path.size <= 1), path.lastOrNull()?.name, enterFolder, goBack, cur) { c -> playClip(c, -1L); tab = 1 }
-                1 -> when (skin) {
-                    Skin.SPOTIFY -> PlayerSpotify(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
-                    Skin.YTM -> PlayerYtm(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
-                    else -> PlayerTab(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
-                }
+                0 -> Library(d, set, all, cur) { c -> playClip(c, -1L); tab = 1 }
+                1 -> PlayerTab(d, set, cur, env, cuts, sleepAt, { sleepAt = it }, deleteMark) { gesture = true }
                 2 -> MarksTab(d, all, deleteMark) { uri, ms ->
                     val c = all.find { it.uri.toString() == uri }
                     if (c == null) err = "ההקלטה לא נמצאת בתיקייה הנוכחית" else { playClip(c, ms); tab = 1 }
                 }
-                3 -> StorageTab(d, all, ::refresh)
-                else -> SettingsScreen(d, set)
+                else -> StorageTab(d, all, ::refresh)
             }
         }
-    }
-    crashLog?.let { log ->
-        AlertDialog(
-            onDismissRequest = {},
-            icon = { Icon(Icons.Rounded.BugReport, null) },
-            title = { Text("האפליקציה נסגרה בפעם הקודמת") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("נשמר דוח על מה שקרה. אפשר להעתיק או לשתף אותו כדי שנתקן. שום דבר לא נשלח אוטומטית.",
-                        style = MaterialTheme.typography.bodyMedium)
-                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) {
-                        Text(log.take(900), Modifier.padding(10.dp).heightIn(max = 220.dp).verticalScroll(rememberScrollState()),
-                            style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-                    }
-                }
-            },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton({ copyText(ctx, log); err = "הדוח הועתק" }) { Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("העתק") }
-                    TextButton({ shareText(ctx, "SoundPulse crash:\n\n" + log) }) { Icon(Icons.Rounded.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("שתף") }
-                }
-            },
-            dismissButton = { TextButton({ clearCrash(ctx); crashLog = null }) { Text("סגור ומחק") } }
-        )
     }
 }
 
@@ -316,7 +302,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         Spacer(Modifier.height(12.dp)); Text(text, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 
-@Composable fun Library(d: AppData, set: Setter, files: List<Clip>, folders: List<Folder>, atRoot: Boolean, folderName: String?, onEnter: (Folder) -> Unit, onBack: () -> Unit, cur: Clip?, onPlay: (Clip) -> Unit) {
+@Composable fun Library(d: AppData, set: Setter, all: List<Clip>, cur: Clip?, onPlay: (Clip) -> Unit) {
     val ctx = LocalContext.current
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { u ->
         if (u != null) runCatching {
@@ -327,58 +313,37 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     var q by rememberSaveable { mutableStateOf("") }
     var onlyNew by rememberSaveable { mutableStateOf(false) }
     var newest by rememberSaveable { mutableStateOf(false) }
-    val base = files.filter { it.audio }
+    val base = all.filter { it.audio }
     val list = base.filter { q.isBlank() || it.name.contains(q, ignoreCase = true) }
         .filter { !onlyNew || it.uri.toString() !in d.played }
         .let { if (newest) it.sortedByDescending { c -> c.mod } else it }
-    val shownFolders = folders.filter { q.isBlank() || it.name.contains(q, ignoreCase = true) }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("הספרייה שלי", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("הספרייה שלי", style = MaterialTheme.typography.headlineMedium.copy(brush = Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary))), fontWeight = FontWeight.ExtraBold)
         FilledTonalButton({ pick.launch(null) }, Modifier.fillMaxWidth().height(48.dp)) {
             Icon(Icons.Rounded.FolderOpen, null); Spacer(Modifier.width(8.dp)); Text(if (d.folder == null) "בחר תיקיית הקלטות" else "החלף תיקייה")
         }
-        if (d.folder != null) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (!atRoot) {
-                    FilledTonalIconButton({ onBack() }, Modifier.size(38.dp)) { Icon(Icons.Rounded.ArrowForward, "חזרה") }
-                    Spacer(Modifier.width(8.dp))
-                } else { Icon(Icons.Rounded.Home, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)) }
-                Text(if (atRoot) "בית" else (folderName ?: "תיקייה"), Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth(), placeholder = { Text("חיפוש הקלטה או תיקייה") }, singleLine = true,
+        if (base.isNotEmpty()) {
+            OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth(), placeholder = { Text("חיפוש הקלטה") }, singleLine = true,
                 leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(14.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = onlyNew, onClick = { onlyNew = !onlyNew }, label = { Text("שלא הושמעו") })
                 FilterChip(selected = newest, onClick = { newest = !newest }, label = { Text("החדשות קודם") })
-                Text("${shownFolders.size} תיקיות · ${list.size} הקלטות", Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${list.size} הקלטות", Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (d.folder == null) Empty(Icons.Rounded.LibraryMusic, "בחר תיקייה כדי להתחיל")
-        else if (list.isEmpty() && shownFolders.isEmpty()) Empty(Icons.Rounded.LibraryMusic, if (q.isBlank()) "התיקייה ריקה" else "אין תוצאות לחיפוש")
+        if (list.isEmpty()) Empty(Icons.Rounded.LibraryMusic, if (d.folder == null) "בחר תיקייה כדי להתחיל" else if (base.isEmpty()) "לא נמצאו הקלטות בתיקייה" else "אין הקלטות שמתאימות לחיפוש")
         else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
-            items(shownFolders, key = { "f:" + it.name }) { f ->
-                Card(Modifier.fillMaxWidth().clickable { onEnter(f) }, shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondary.copy(alpha = .18f)), Alignment.Center) {
-                            Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.secondary)
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Text(f.name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-                        Icon(Icons.Rounded.ChevronLeft, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-            items(list, key = { "c:" + it.uri.toString() }) { c ->
+            items(list, key = { it.uri.toString() }) { c ->
                 val k = c.uri.toString()
                 val done = k in d.played; val active = c.uri == cur?.uri
                 val nm = d.marks.count { it.uri == k }
                 val resume = d.pos[k] ?: 0L
-                Card(Modifier.fillMaxWidth().clickable { onPlay(c) }, shape = RoundedCornerShape(16.dp),
+                Card(Modifier.fillMaxWidth().clickable { onPlay(c) }, shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary.copy(alpha = .6f) else MaterialTheme.colorScheme.outlineVariant),
                     colors = CardDefaults.cardColors(containerColor = if (active) MaterialTheme.colorScheme.primary.copy(alpha = .14f) else MaterialTheme.colorScheme.surfaceContainer)) {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = .15f)), Alignment.Center) {
-                            Icon(if (done) Icons.Rounded.CheckCircle else Icons.Rounded.PlayArrow, null, tint = MaterialTheme.colorScheme.primary)
+                        Box(Modifier.size(46.dp).clip(CircleShape).background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary))), Alignment.Center) {
+                            Icon(if (done) Icons.Rounded.CheckCircle else if (active) Icons.Rounded.GraphicEq else Icons.Rounded.PlayArrow, null, tint = Color.White)
                         }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
@@ -438,9 +403,14 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     fun seek(ms: Long) = runCatching { p.seekTo(ms.coerceIn(0, dur)) }
     val sleepLeft = if (sleepAt > now) (sleepAt - now) / 60000 + 1 else 0L
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
-        item { Text(cur.name.substringBeforeLast('.'), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         item {
-            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                PulseOrb(playing)
+                Text(cur.name.substringBeforeLast('.'), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+            }
+        }
+        item {
+            Card(shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(14.dp)) {
                     Wave(env, pos, dur, cuts, marks) { seek(it) }
                     Row(Modifier.fillMaxWidth().padding(top = 6.dp), Arrangement.SpaceBetween) {
@@ -454,7 +424,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
         item {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
                 IconButton({ seek(pos - 30_000) }, Modifier.size(56.dp)) { Icon(Icons.Rounded.Replay30, "אחורה 30 שניות", Modifier.size(34.dp)) }
-                FilledIconButton({ runCatching { if (p.isPlaying) p.pause() else p.play() } }, Modifier.size(76.dp)) {
+                FilledIconButton({ runCatching { if (p.isPlaying) p.pause() else p.play() } }, Modifier.size(80.dp)) {
                     Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "נגן או השהה", Modifier.size(42.dp))
                 }
                 IconButton({ seek(pos + 30_000) }, Modifier.size(56.dp)) { Icon(Icons.Rounded.Forward30, "קדימה 30 שניות", Modifier.size(34.dp)) }
@@ -531,7 +501,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     LaunchedEffect(flash) { if (flash) { delay(250); flash = false } }
     fun show(t: String, i: androidx.compose.ui.graphics.vector.ImageVector) { label = t; icon = i; flash = true; haptic.performHapticFeedback(HapticFeedbackType.LongPress); if (dNow.speak) sp.say(t) }
     val key = cur.uri.toString()
-    Box(Modifier.fillMaxSize().background(bg)
+    Box(Modifier.fillMaxSize().background(bg).statusBarsPadding()
         .pointerInput(Unit) {
             detectTapGestures(
                 onTap = { runCatching { if (p.isPlaying) { p.pause(); show("מושהה", Icons.Rounded.Pause) } else { p.play(); show("מנגן", Icons.Rounded.PlayArrow) } } },
@@ -555,6 +525,7 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
                         if (fwd) show("+30 שניות", Icons.Rounded.Forward30) else show("-30 שניות", Icons.Rounded.Replay30)
                     } else if (dy < -80) { val pos = p.currentPosition; set { x -> x.copy(marks = x.marks + Mark(key, pos, "סימנייה")) }; show("סימנייה נוספה", Icons.Rounded.Bookmark) }
                     else if (dy > 80) { val n = cuts.firstOrNull { it > p.currentPosition }; if (n != null) { p.seekTo(n); show("פרק הבא", Icons.Rounded.SkipNext) } else show("אין פרק הבא", Icons.Rounded.SkipNext) }
+                    else Unit
                 }
             })
         }, contentAlignment = Alignment.Center) {

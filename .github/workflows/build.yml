@@ -20,17 +20,17 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/*.apk out/SoundPulse.apk
+          cp app/build/outputs/apk/debug/*.apk out/SoundPulse-fixed.apk
       - uses: actions/upload-artifact@v4
         with:
           name: focus-audio-apk
-          path: out/SoundPulse.apk
-      - name: Publish APK to a Release (direct phone download)
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/claude/crash-report'
+          path: out/SoundPulse-fixed.apk
+      - name: Publish APK to the "fixed" release
+        if: github.ref == 'refs/heads/claude/fixed'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: SoundPulse — latest build
-          body: "APK מתעדכן בכל בנייה. הורד את SoundPulse.apk והתקן בטלפון."
-          files: out/SoundPulse.apk
+          tag_name: fixed
+          name: SoundPulse (fixed branch)
+          body: "APK מענף claude/fixed. מתעדכן בכל בנייה."
+          files: out/SoundPulse-fixed.apk
           prerelease: true
