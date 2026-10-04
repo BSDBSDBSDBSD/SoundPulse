@@ -393,11 +393,11 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     }
 }
 
-@Composable fun Wave(env: FloatArray?, pos: Long, dur: Long, cuts: List<Long>, marks: List<Mark>, onSeek: (Long) -> Unit) {
+@Composable fun Wave(env: FloatArray?, pos: Long, dur: Long, cuts: List<Long>, marks: List<Mark>, modifier: Modifier = Modifier.fillMaxWidth().height(110.dp), onSeek: (Long) -> Unit) {
     val on = MaterialTheme.colorScheme.primary; val off = MaterialTheme.colorScheme.outlineVariant
     val cutC = MaterialTheme.colorScheme.tertiary
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Canvas(Modifier.fillMaxWidth().height(110.dp)
+        Canvas(modifier
             .pointerInput(dur) { detectTapGestures { o -> onSeek((o.x / size.width * dur).toLong().coerceIn(0, dur)) } }
             .pointerInput(dur) { detectHorizontalDragGestures { ch, _ -> onSeek((ch.position.x / size.width * dur).toLong().coerceIn(0, dur)) } }) {
             val n = (size.width / 5).toInt().coerceAtLeast(1); val cy = size.height / 2
@@ -444,9 +444,9 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(cur.name.substringBeforeLast('.'), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-            Column(Modifier.padding(14.dp)) {
-                Wave(env, pos, dur, cuts, marks) { seek(it) }
+        Card(Modifier.fillMaxWidth().weight(1f), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+            Column(Modifier.padding(14.dp).fillMaxSize()) {
+                Wave(env, pos, dur, cuts, marks, modifier = Modifier.fillMaxWidth().weight(1f).heightIn(min = 60.dp)) { seek(it) }
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), Arrangement.SpaceBetween) {
                     Text(fmt(pos), style = MaterialTheme.typography.labelLarge)
                     if (env == null) Text("מנתח...", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -483,14 +483,16 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
             FilledIconButton({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "סימנייה" })) }; note = "" }, Modifier.size(52.dp)) { Icon(Icons.Rounded.Bookmark, "הוסף סימנייה") }
             FilledIconButton({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); set { x -> x.copy(marks = x.marks + Mark(key, pos, note.ifBlank { "דגל" }, true)) }; note = "" }, Modifier.size(52.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Coral, contentColor = androidx.compose.ui.graphics.Color.White)) { Icon(Icons.Rounded.Flag, "הוסף דגל") }
         }
-        Spacer(Modifier.weight(1f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton(onGesture, Modifier.weight(1f).height(50.dp)) { Icon(Icons.Rounded.DirectionsWalk, null); Spacer(Modifier.width(6.dp)); Text("מצב הליכה") }
-            FilledTonalButton({ sheet = true }, Modifier.weight(1f).height(50.dp)) { Icon(Icons.Rounded.FormatListBulleted, null); Spacer(Modifier.width(6.dp)); Text("פרקים וסימונים") }
+            FilledTonalButton(onGesture, Modifier.weight(1f).height(48.dp)) { Icon(Icons.Rounded.DirectionsWalk, null); Spacer(Modifier.width(6.dp)); Text("מצב הליכה") }
+            FilledTonalButton({ sheet = true }, Modifier.weight(1f).height(48.dp)) { Icon(Icons.Rounded.FormatListBulleted, null); Spacer(Modifier.width(6.dp)); Text("עוד") }
         }
     }
     if (sheet) ModalBottomSheet(onDismissRequest = { sheet = false }) {
-        ExtrasSheet(cuts, marks, { seek(it); sheet = false }, { editing = it }, onDelete)
+        ExtrasSheet(cur, key in d.played, cuts, marks, { seek(it); sheet = false }, { editing = it }, onDelete,
+            onRestart = { seek(0L); sheet = false },
+            onTogglePlayed = { set { x -> x.copy(played = if (key in x.played) x.played - key else x.played + key) } },
+            onShare = { shareText(ctx, cur.name.substringBeforeLast('.') + " — " + fmt(pos)) })
     }
     editing?.let { m ->
         var t by remember(m) { mutableStateOf(m.text) }
@@ -501,8 +503,16 @@ fun marksText(marks: List<Mark>, nameOf: (String) -> String): String =
     }
 }
 
-@Composable fun ExtrasSheet(cuts: List<Long>, marks: List<Mark>, onSeek: (Long) -> Unit, onEdit: (Mark) -> Unit, onDelete: (Mark) -> Unit) {
-    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp).padding(horizontal = 16.dp), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+@OptIn(ExperimentalLayoutApi::class)
+@Composable fun ExtrasSheet(cur: Clip, isPlayed: Boolean, cuts: List<Long>, marks: List<Mark>, onSeek: (Long) -> Unit, onEdit: (Mark) -> Unit, onDelete: (Mark) -> Unit, onRestart: () -> Unit, onTogglePlayed: () -> Unit, onShare: () -> Unit) {
+    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp).padding(horizontal = 16.dp), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        item {
+            FlowRow(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistChip(onClick = onRestart, label = { Text("מהתחלה") }, leadingIcon = { Icon(Icons.Rounded.RestartAlt, null, Modifier.size(18.dp)) })
+                FilterChip(selected = isPlayed, onClick = onTogglePlayed, label = { Text(if (isPlayed) "סומן כהושמע" else "סמן כהושמע") }, leadingIcon = { Icon(Icons.Rounded.CheckCircle, null, Modifier.size(18.dp)) })
+                AssistChip(onClick = onShare, label = { Text("שתף מיקום") }, leadingIcon = { Icon(Icons.Rounded.Share, null, Modifier.size(18.dp)) })
+            }
+        }
         if (cuts.isEmpty() && marks.isEmpty()) item { Text("עדיין אין פרקים או סימונים בהקלטה הזו", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (cuts.isNotEmpty()) item { Text("פרקים", Modifier.padding(vertical = 6.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
         items(cuts.size) { i -> Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onSeek(cuts[i]) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {

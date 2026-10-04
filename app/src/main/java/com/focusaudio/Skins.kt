@@ -77,7 +77,7 @@ private val Coral = Color(0xFFE5566D)
             // "art" = the live waveform, filling the free space
             Box(Modifier.fillMaxWidth().weight(1f).heightIn(min = 120.dp).clip(RoundedCornerShape(if (skin == Skin.YTM) 10.dp else 16.dp))
                 .background(Brush.linearGradient(listOf(accent.copy(alpha = .9f), Color(pal.c2).copy(alpha = .55f), Color(pal.c3).copy(alpha = .4f))))) {
-                Box(Modifier.align(Alignment.Center).fillMaxWidth().padding(14.dp)) { Wave(env, pos, dur, cuts, marks) { seek(it) } }
+                Box(Modifier.align(Alignment.Center).fillMaxSize().padding(14.dp)) { Wave(env, pos, dur, cuts, marks, modifier = Modifier.fillMaxSize()) { seek(it) } }
                 Text(cur.name.substringBeforeLast('.'), Modifier.align(Alignment.BottomStart).padding(14.dp),
                     color = White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -134,7 +134,10 @@ private val Coral = Color(0xFFE5566D)
             }
         }
         if (sheet) ModalBottomSheet(onDismissRequest = { sheet = false }) {
-            ExtrasSheet(cuts, marks, { seek(it); sheet = false }, { editing = it }, onDelete)
+            ExtrasSheet(cur, key in d.played, cuts, marks, { seek(it); sheet = false }, { editing = it }, onDelete,
+                onRestart = { seek(0L); sheet = false },
+                onTogglePlayed = { set { x -> x.copy(played = if (key in x.played) x.played - key else x.played + key) } },
+                onShare = { shareText(ctx, cur.name.substringBeforeLast('.') + " — " + fmt(pos)) })
         }
         }
     }
@@ -148,8 +151,23 @@ private val Coral = Color(0xFFE5566D)
 }
 
 @Composable fun SettingsScreen(d: AppData, set: Setter) {
+    var showHelp by rememberSaveable { mutableStateOf(false) }
+    if (showHelp) { HelpScreen { showHelp = false }; return }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("הגדרות", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+
+        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().clickable { showHelp = true }) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.MenuBook, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("מדריך והסברים", fontWeight = FontWeight.Bold)
+                    Text("מה כל פונקציה עושה ואיך משתמשים בה", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.Rounded.ChevronLeft, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
 
         Text("סגנון נגן", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -200,6 +218,75 @@ private val Coral = Color(0xFFE5566D)
 
         Text("SoundPulse · גרסה ${BuildTag.VERSION}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable fun HelpScreen(onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            FilledTonalIconButton({ onBack() }, Modifier.size(40.dp)) { Icon(Icons.Rounded.ArrowForward, "חזרה") }
+            Spacer(Modifier.width(10.dp))
+            Text("מדריך SoundPulse", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("SoundPulse הוא נגן להקלטות ולשיעורים ארוכים. הכול עובד ללא אינטרנט, בלי פרסומות ובלי הרשמה. להלן כל מה שאפשר לעשות בו.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            HelpItem(Icons.Rounded.GraphicEq, "גל-הקול והנגן",
+                "במסך הנגן רואים את גל-הקול של ההקלטה. הקשה או גרירה עליו מקפיצה את ההשמעה לנקודה. הכפתורים: אחורה/קדימה 30 שניות, ניגון/השהיה, ומעבר לפרק הקודם/הבא. כל הפקדים נמצאים על מסך אחד בלי צורך לגלול.")
+
+            HelpItem(Icons.Rounded.Segment, "פרקים אוטומטיים",
+                "האפליקציה מזהה לבד שתיקות ארוכות בהקלטה ומחלקת אותה לפרקים, כדי שתוכל לדלג בין נושאים. רשימת הפרקים נמצאת בכפתור \"עוד\" שבתחתית הנגן.")
+
+            HelpItem(Icons.Rounded.Restore, "המשך מאיפה שעצרת",
+                "לכל הקלטה נשמר המקום האחרון. כשחוזרים אליה היא ממשיכה משם, ואף חוזרת כ-3 שניות אחורה כדי להיכנס שוב לעניין. בספרייה רואים ליד כל הקלטה \"נעצר ב-...\".")
+
+            HelpItem(Icons.Rounded.Bookmark, "סימניות, דגלים והערות",
+                "בזמן ההשמעה אפשר לכתוב הערה לנקודה הנוכחית ולשמור אותה כ‏סימנייה (כחולה) או כ‏דגל (אדום, להדגשה). אפשר לערוך ולמחוק (עם ביטול). כל הסימונים מכל ההקלטות מרוכזים בטאב \"סימונים\", עם סינון וקפיצה ישירה לנקודה, ואפשר לשתף אותם כטקסט.")
+
+            HelpItem(Icons.Rounded.Speed, "מהירות השמעה",
+                "לחיצה על שבב המהירות מחליפה בין 0.75x ל-3x. המהירות נשמרת בין הפעלות. שימושי להאזנה מהירה לשיעורים ארוכים.")
+
+            HelpItem(Icons.Rounded.RecordVoiceOver, "מעבד דיבור",
+                "שבב \"מעבד דיבור\" מפעיל עיבוד קול שמבהיר דיבור: מגביר את תחום התדרים של הדיבור, מחליש רעש רקע ורעמים, ומשווה בין קטעים חזקים וחלשים כך שהעוצמה אחידה. מצוין להקלטות שיעור לא מקצועיות. אפשר לכבות אם מעדיפים את הקול המקורי. (זמינות התכונה תלויה במכשיר.)")
+
+            HelpItem(Icons.Rounded.FastForward, "דילוג על שקטים",
+                "שבב \"דלג שקטים\" מקצר אוטומטית שתיקות ארוכות בזמן ההשמעה, כדי לחסוך זמן בלי לפספס תוכן.")
+
+            HelpItem(Icons.Rounded.Timer, "טיימר שינה",
+                "לחיצות על שבב הטיימר קובעות כיבוי אוטומטי בעוד 15 / 30 / 60 דקות, ואז הנגן נעצר לבד. לחיצה נוספת מבטלת.")
+
+            HelpItem(Icons.Rounded.PlaylistPlay, "המשך אוטומטי",
+                "כשמופעל, בסוף הקלטה האפליקציה עוברת אוטומטית להקלטה הבאה באותה תיקייה.")
+
+            HelpItem(Icons.Rounded.DirectionsWalk, "מצב הליכה (מחוות)",
+                "הופך את כל המסך לשלט מחוות, כדי להפעיל בלי להסתכל (למשל תוך כדי הליכה):\n• הקשה — ניגון/השהיה\n• החלקה ימינה — 30 שניות קדימה; שמאלה — אחורה (אפשר להפוך כיוון)\n• החלקה למעלה — סימנייה; למטה — הפרק הבא\n• לחיצה ארוכה — דגל\n• הקשה כפולה — הקראה קולית (שם ההקלטה / כמה נשאר / הסימנייה האחרונה)\nכל פעולה מלווה ברטט ובהבהוב, ואפשר להפעיל אישור קולי שמקריא כל פעולה. המסך נשאר דלוק.")
+
+            HelpItem(Icons.Rounded.FolderOpen, "ספרייה וניווט תיקיות",
+                "בוחרים תיקיית הקלטות פעם אחת. אפשר להיכנס לתת-תיקיות ולחזור אחורה כמו בסייר קבצים, לחפש הקלטות ותיקיות, לסנן \"שלא הושמעו\" ולמיין \"החדשות קודם\". נגן מיני מופיע בתחתית בכל הלשוניות.")
+
+            HelpItem(Icons.Rounded.Compress, "כיווץ הקלטות שהושמעו",
+                "בלשונית \"אחסון\" אפשר לחסוך מקום: האפליקציה ממירה ל-AAC (איכות דיבור) רק הקלטות שכבר הושמעו במלואן, וכך הן תופסות הרבה פחות מקום. הקלטות שלא הושמעו לא נוגעים בהן. אפשר לסמן הקלטה כ\"הושמעה\" ידנית מכפתור \"עוד\" שבנגן. באותו מסך יש גם סורק שמאתר קבצים כפולים, ישנים וזבל למחיקה.")
+
+            HelpItem(Icons.Rounded.Palette, "עיצוב וערכות",
+                "בהגדרות אפשר לבחור סגנון נגן (SoundPulse / Spotify / YouTube Music), ערכת צבע מתוך 12, ומצב גרפיקה רגוע או מוגזם. הבחירה לא משנה אף פונקציה — רק את המראה.")
+
+            Text("SoundPulse · גרסה ${BuildTag.VERSION}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable private fun HelpItem(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String) {
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(14.dp)) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
